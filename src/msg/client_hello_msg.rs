@@ -27,6 +27,7 @@ struct ClientHelloExtensions {
     session_ticket: Option<Vec<u8>>,
     signature_algorithms: Option<Vec<SignatureHash>>,
     alpn: Option<Vec<u8>>,
+    secure_renegotiation: Option<Vec<u8>>,
     scts: bool,
 }
 
@@ -102,6 +103,19 @@ impl<'a, 'b> ExtParser<'a, 'b> {
         Ok(points)
     }
 
+    fn parse_renegotiation_info(self) -> Result<Vec<u8>, HandleShakeError> {
+        if self.extension_len == 0 {
+            return Err(HandleShakeError::ParserError); 
+        }
+        let len = self.pos_reader.get_u8();
+        if len + 1 != self.extension_len as _ {
+            return Err(HandleShakeError::ParserError); 
+        }
+        let mut data = vec![0u8; len as _];
+        self.pos_reader.copy_to_slice(&mut data[..]);
+        Ok(data)
+    }
+
 
     fn parse_signature_algorithms(self) -> Result<Vec<SignatureHash>, HandleShakeError> {
         if self.extension_len < 2 {
@@ -145,12 +159,12 @@ impl<'a, 'b> ExtParser<'a, 'b> {
 
 }
 
-struct ClientHelloExtensionsParser<'a> {
-    pos_reader: PosReader<'a>,
+struct ClientHelloExtensionsParser<'a, 'b> {
+    pos_reader: &'b mut PosReader<'a>,
 }
 
-impl<'a> ClientHelloExtensionsParser<'a> {
-    fn new(pos_reader: PosReader<'a>) -> Self {
+impl<'a, 'b> ClientHelloExtensionsParser<'a, 'b> {
+    fn new(pos_reader: &'b mut PosReader<'a>) -> Self {
         Self {
             pos_reader,
         }
@@ -169,6 +183,12 @@ impl<'a> ClientHelloExtensionsParser<'a> {
             }
             let ext_type = self.pos_reader.get_u16();
             let ext_len = self.pos_reader.get_u16();
+            macro_rules! parse_extension {
+                ($ex: tt) => {{
+                    let parser = ExtParser::new(&mut self.pos_reader, ext_len);
+                    Some(parser.$ex()?)
+                }};
+            }
             match ext_type {
                 EXT_TYPE_SVR_NAME => {
                     let parser = ExtParser::new(&mut self.pos_reader, ext_len);
@@ -197,26 +217,19 @@ impl<'a> ClientHelloExtensionsParser<'a> {
                     client_hello_ext.session_ticket = Some(ticket);
                 }
                 EXT_TYPE_SUPPORTED_CURVES => {
-                    let parser = ExtParser::new(&mut self.pos_reader, ext_len);
-                    client_hello_ext.supported_curves = Some(parser.parse_supported_curves()?);
+                    client_hello_ext.supported_curves = parse_extension!(parse_supported_curves);
                 }
                 EXT_TYPE_SUPPORTED_POINTS => {
-                    let parser = ExtParser::new(&mut self.pos_reader, ext_len);
-                    client_hello_ext.supported_points = Some(parser.parse_supported_points()?);
+                    client_hello_ext.supported_points = parse_extension!(parse_supported_points);
                 }
                 EXT_TYPE_SIGNATURE_ALGORITHMS => {
-                    let parser = ExtParser::new(&mut self.pos_reader, ext_len);
-                    client_hello_ext.signature_algorithms = Some(parser.parse_signature_algorithms()?);
+                    client_hello_ext.signature_algorithms = parse_extension!(parse_signature_algorithms);
                 }
                 EXT_TYPE_ALPN => {
-                    let parser = ExtParser::new(&mut self.pos_reader, ext_len);
-                    client_hello_ext.alpn = Some(parser.parse_alpn()?);
+                    client_hello_ext.alpn = parse_extension!(parse_alpn);
                 }
                 EXT_TYPE_RENEGOTIATION_INFO => {
-                    if ext_len == 0 {
-                        return Err(HandleShakeError::ParserError); 
-                    }
-                    let len = self.pos_reader.get_u8();
+                    client_hello_ext.secure_renegotiation = parse_extension!(parse_renegotiation_info);
                 }
                 EXT_TYPE_SCT => {
                     if ext_len != 0 {
@@ -234,14 +247,25 @@ impl<'a> ClientHelloExtensionsParser<'a> {
     }
 }
 
-impl ClientHelloMsg {
+struct ClientHelloMsgParser<'a, 'b> {
+    pos_reader: &'b mut PosReader<'a>
+}
+
+impl<'a, 'b> ClientHelloMsgParser<'a, 'b> {
+
+    pub fn new(pos_reader: &'b mut PosReader<'a>) -> Self {
+        Self {
+            pos_reader
+        }
+    }
+
     /// parse the client hello package
-    pub fn decode(buf: &[u8]) -> Result<ClientHelloMsg, HandleShakeError> {
+    pub fn parse(self) -> Result<ClientHelloMsg, HandleShakeError> {
         // client hello protocol package min size is 42.
-        if buf.len() < 42 {
+        if self.pos_reader.remaining() < 42 {
             return Err(HandleShakeError::ParserError);
         }
-        let mut pos_reader = PosReader::new(buf);
+        let pos_reader = self.pos_reader;
         let version = pos_reader.get_u16();
         let mut random = [0u8; 32];
         pos_reader.copy_to_slice(&mut random);
@@ -372,7 +396,9 @@ mod test {
             0x00, 0x00, 0x2d, 0x00, 0x02, 0x01, 0x01, 0xaa,
             0xaa, 0x00, 0x01, 0x00
         ];
-        ClientHelloMsg::decode(packet).unwrap();
+        let mut pos_reader = PosReader::new(packet);
+        let parser = ClientHelloMsgParser::new(&mut pos_reader);
+        assert!(parser.parse().is_ok());
     }
 
     
