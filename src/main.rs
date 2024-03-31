@@ -7,10 +7,9 @@ fn main() {
         .build()
         .unwrap();
     rt.block_on(async {
-        let listener = TcpListener::bind("127.0.0.1:8081").await.expect("the port is already bind.");
-        while let Ok((mut stream, _addr)) = listener.accept().await  {
-            
-        }
+        let listener = TcpListener::bind("127.0.0.1:8081")
+            .await
+            .expect("the port is already bind.");
+        while let Ok((mut stream, _addr)) = listener.accept().await {}
     });
-    
 }

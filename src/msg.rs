@@ -1,10 +1,9 @@
-use std::{
-    collections::HashSet, mem
-};
-use thiserror::Error;
-
 mod client_hello_msg;
-pub use client_hello_msg::*;
+use client_hello_msg::*;
+
+mod server_hello_msg;
+use crate::error::HandleShakeError;
+use server_hello_msg::*;
 
 const EXT_TYPE_SVR_NAME: u16 = 0x0;
 const EXT_TYPE_STATUS_REQUEST: u16 = 0x5;
@@ -19,12 +18,6 @@ const EXT_TYPE_RENEGOTIATION_INFO: u16 = 0xFF01;
 
 /// rfc3546
 const STATUS_TYPE_OCSP: u8 = 1;
-
-#[derive(Error, Debug)]
-enum HandleShakeError {
-    #[error("parse error")]
-    ParserError
-}
 
 struct PosReader<'a> {
     buf: &'a [u8],
@@ -48,10 +41,7 @@ macro_rules! buf_get {
 
 impl<'a> PosReader<'a> {
     fn new(buf: &'a [u8]) -> Self {
-        Self {
-            buf,
-            pos: 0
-        }
+        Self { buf, pos: 0 }
     }
 
     #[inline(always)]
@@ -80,7 +70,7 @@ impl<'a> PosReader<'a> {
     fn fill_to_slice(&self, buf: &mut [u8]) {
         let s_idx = self.pos;
         assert!(self.remaining() > buf.len());
-        buf.copy_from_slice(&self.buf[s_idx..s_idx+buf.len()]);
+        buf.copy_from_slice(&self.buf[s_idx..s_idx + buf.len()]);
     }
 
     #[inline(always)]
@@ -104,12 +94,14 @@ impl<'a> PosReader<'a> {
     pub fn first_u16(&self) -> u16 {
         buf_get!(self, u16::from_be_bytes, false)
     }
-
 }
 
 impl<'a> Clone for PosReader<'a> {
     fn clone(&self) -> Self {
-        Self { buf: &*self.buf, pos: self.pos }
+        Self {
+            buf: &*self.buf,
+            pos: self.pos,
+        }
     }
 }
 
@@ -119,35 +111,34 @@ pub struct SignatureHash {
 }
 
 trait HandleShakeDecoder {
-    fn decode(buf: &[u8]) -> Result<Self, HandleShakeError> where Self: Sized;
+    fn decode(buf: &[u8]) -> Result<Self, HandleShakeError>
+    where
+        Self: Sized;
 }
 
-struct ServerHelloMsg {
+pub struct ServerHelloMsg {}
+
+pub struct ClientHelloMsg {
+    pub version: u16,
 }
 
-struct CertificateMsg {
+pub struct CertificateMsg {}
+
+pub struct ServerKeyExchangeMsg {}
+
+pub struct ClientKeyExchangeMsg {
+    pub ciphertext: Vec<u8>,
 }
 
-struct ServerKeyExchangeMsg {
-}
+struct CertificateRequestMsg {}
 
-struct ClientKeyExchangeMsg {
-}
+struct ServerHelloDoneMsg {}
 
-struct CertificateRequestMsg {
-}
+struct ClientHelloDoneMsg {}
 
-struct ServerHelloDoneMsg {
-}
+struct NewSessionTicketMsg {}
 
-struct ClientHelloDoneMsg {
-}
-
-struct NewSessionTicketMsg {
-}
-
-struct ChangeCipherSpecMsg {
-}
+struct ChangeCipherSpecMsg {}
 
 enum HandleShakeMsg {
     ClientHello(ClientHelloMsg),
