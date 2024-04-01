@@ -39,6 +39,8 @@ impl KeyAgreement for RsaKeyAgreement {
         return Ok(pre_master_secret);
     }
 
+    /// generate client key exchange message
+    /// rng is generate the random data.
     fn gen_client_key_exchange<Rng>(
         rng: &mut Rng,
         client_msg: &msg::ClientHelloMsg,
@@ -51,7 +53,6 @@ impl KeyAgreement for RsaKeyAgreement {
         let mut ran = [0u8; 46];
         pre_master_secret.put_u8((client_msg.version >> 8) as u8);
         pre_master_secret.put_u8(client_msg.version as u8);
-
         rng.try_fill_bytes(&mut ran)
             .map_err(|_| HandleShakeError::UnexpectedError("random fill bytes error"))?;
         pre_master_secret.put_slice(&ran);
